@@ -1,0 +1,192 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Noto Sans TC', sans-serif;
+  background: #fefce8; /* 淺米色背景 */
+  overflow: hidden;
+}
+
+#scene-container {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+}
+
+/* 🟢 綠色頂欄 */
+.app-header {
+  position: absolute; top: 0; left: 0; width: 100%;
+  height: 60px; background: #22c55e;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 20px; z-index: 100;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.logo-group { display: flex; align-items: center; gap: 10px; color: white; }
+.logo-group h1 { font-size: 18px; font-weight: bold; }
+.version-tag { 
+  font-size: 10px; background: rgba(255,255,255,0.2); 
+  padding: 2px 8px; border-radius: 10px; margin-left: 8px;
+}
+
+/* 🔴 紅色切換按鈕 */
+.toggle-btn {
+  background: #ef4444; color: white; border: none;
+  padding: 8px 20px; border-radius: 20px; font-weight: bold;
+  cursor: pointer; display: flex; align-items: center; gap: 6px;
+  box-shadow: 0 4px 0 #b91c1c; transition: all 0.1s;
+}
+.toggle-btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #b91c1c; }
+
+/* 2D 面板 (半透明米色) */
+.page {
+  position: absolute; top: 70px; left: 20px;
+  width: 400px; background: rgba(255,255,255,0.9);
+  backdrop-filter: blur(10px); border-radius: 20px;
+  max-height: calc(100vh - 100px); overflow-y: auto;
+  display: none; z-index: 50; border: 2px solid #22c55e;
+}
+.page.active { display: block; }
+
+/* 📍 平面圖標記系統 */
+.image-wrapper-2d, .full-img-container {
+  position: relative;
+}
+
+.marker-layer {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none; /* 預設穿透，子元素再開啟點擊 */
+}
+
+.room-marker {
+  position: absolute;
+  pointer-events: auto;
+  background: rgba(15, 23, 42, 0.85);
+  color: #f8fafc;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: bold;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  white-space: nowrap;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+
+.room-marker:hover {
+  background: #2563eb;
+  transform: translate(-50%, -50%) scale(1.1);
+  z-index: 10;
+}
+
+/* 🔘 設備交互按鈕 (脈衝效果) */
+.device-node {
+  position: absolute;
+  width: 16px; height: 16px;
+  background: #ef4444;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.8);
+}
+
+.device-node::after {
+  content: '';
+  position: absolute;
+  top: -2px; left: -2px; right: -2px; bottom: -2px;
+  border-radius: 50%;
+  border: 2px solid #ef4444;
+  animation: pulse-ring 1.5s infinite;
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.5); opacity: 1; }
+  100% { transform: scale(2.5); opacity: 0; }
+}
+
+.device-node:hover {
+  background: #f87171;
+  transform: translate(-50%, -50%) scale(1.3);
+}
+
+/* 底部提示 */
+.bottom-hint {
+  position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+  background: rgba(255,255,255,0.8); padding: 8px 24px;
+  border-radius: 30px; font-size: 13px; color: #444;
+  border: 1px solid #ddd; z-index: 10;
+}
+
+#building-label {
+  position: absolute; display: none; z-index: 1000;
+  background: rgba(0,0,0,0.8); color: white;
+  padding: 6px 12px; border-radius: 8px; font-size: 12px;
+  pointer-events: none;
+}
+
+.map-container { padding: 15px; display: flex; flex-direction: column; gap: 15px; }
+.floor-nav-2d { display: flex; gap: 10px; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+.floor-tab {
+  flex: 1; padding: 8px; border: none; background: #f3f4f6;
+  border-radius: 8px; cursor: pointer; font-weight: 500;
+  transition: all 0.3s; color: #666;
+}
+.floor-tab.active { background: #22c55e; color: white; }
+
+.image-wrapper-2d { 
+  position: relative; width: 100%; border-radius: 12px; 
+  overflow: hidden; background: #fff; border: 1px solid #eee;
+}
+.plan-img-2d { 
+  width: 100%; display: none; 
+  transition: opacity 0.5s ease;
+}
+.plan-img-2d.active { display: block; animation: fadeIn 0.5s; }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* 🌟 讀取進度條樣式 */
+#loading-overlay {
+  position: fixed;
+  top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(254, 252, 232, 0.95);
+  display: flex; justify-content: center; align-items: center;
+  z-index: 9999;
+  transition: opacity 0.5s ease;
+}
+.loader-box { width: 300px; text-align: center; }
+.loader-text { 
+  font-size: 14px; color: #166534; font-weight: 500; margin-bottom: 15px; 
+  font-family: 'Noto Sans TC', sans-serif;
+}
+.loader-bar { 
+  width: 100%; height: 4px; background: #dcfce7; 
+  border-radius: 2px; overflow: hidden; 
+}
+/* 🚀 地宮全螢幕 2D 覆蓋層 */
+#basement-full-2d {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: #fefce8; /* 🏠 100% 不透明淺米色，徹底擋住後方 */
+  z-index: 20000; display: none; opacity: 0;
+  justify-content: center; align-items: center;
+  transition: opacity 0.5s ease; cursor: pointer;
+}
+.full-img-container {
+  width: 90%; height: 90%; display: flex; flex-direction: column;
+  justify-content: center; align-items: center; gap: 20px;
+}
+.full-img-container img {
+  max-width: 100%; max-height: 85vh; object-fit: contain;
+  box-shadow: 0 20px 50px rgba(0,0,0,0.2); border-radius: 10px;
+}
+.close-tip {
+  color: #166534; font-weight: bold; font-size: 1.2rem;
+  background: rgba(255,255,255,0.6); padding: 10px 30px;
+  border-radius: 50px;
+}

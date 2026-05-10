@@ -1,0 +1,308 @@
+// ==========================================
+// 建築設備故障排除指引 — 全區地圖原型 v3
+// ==========================================
+
+// --- 圓樓房間資料 ---
+function makeRooms1F() {
+  const ids = ['109','108','107','106','105','103','102','101','117','116','115','113','112','111','110'];
+  const start = 42, span = 276, step = span / (ids.length - 1);
+  return ids.map((id, i) => ({ id, angle: start + i * step, fault: id === '115' }));
+}
+function makeRooms2F() {
+  const right = ['219','217','216','215','213','212','211','210','209','208','207','206','205','203','202','201'];
+  const bottom = [{id:'200',label:'200聯誼室'},{id:'觀摩室',label:'觀摩室'},{id:'藝廊',label:'藝廊'}];
+  const left = [{id:'239',label:'239貴賓室'},...['237','236','235','233','232','231','230','229','228','227','226','225','223','222','221','220'].map(id=>({id,label:id}))];
+  const all = [...right.map(id=>({id,label:id})), ...bottom, ...left];
+  const start = 35, span = 290, step = span / (all.length - 1);
+  return all.map((r, i) => ({ id: r.id, label: r.label, angle: start + i * step, fault: false }));
+}
+
+window.ROUND = {
+  'B1': [{id:'B101', label:'B1機房', angle: 180}],
+  '1F': makeRooms1F(),
+  '2F': makeRooms2F(),
+};
+
+// 📍 平面圖標記點位數據 (x%, y%)
+const PLAN_MARKERS = {
+  'B1': [
+    { id:'B101', x: 50, y: 50, type:'room', label:'B1 機房' },
+    { id:'B102', x: 30, y: 40, type:'device' },
+    { id:'B103', x: 70, y: 60, type:'device' }
+  ],
+  '1': [
+    { id:'101', x: 45, y: 30, type:'room', label:'大殿入口' },
+    { id:'102', x: 55, y: 50, type:'device' },
+    { id:'103', x: 45, y: 70, type:'room', label:'服務台' }
+  ],
+  '2': [
+    { id:'201', x: 40, y: 40, type:'room', label:'2F 走廊' },
+    { id:'202', x: 60, y: 60, type:'device' }
+  ],
+  '3': [
+    { id:'301', x: 50, y: 30, type:'room', label:'3F 閣樓' },
+    { id:'302', x: 50, y: 70, type:'device' }
+  ]
+};
+
+// --- 建築資料 ---
+const BUILDING_INFO = {
+  main: { name: '主殿 (A棟)', icon: '⛩️', floors: ['B1','1F','2F','3F'],
+    desc: '主要禮堂與行政空間', rooms: { 'B1':['B1機房'], '1F':['大殿'], '2F':['大殿2F'], '3F':['大殿3F'] }},
+  east: { name: '東側殿 (B棟)', icon: '🏢', floors: ['1F','2F'],
+    desc: '東側教學空間', rooms: { '1F':['B1-1教室','B1-2教室'], '2F':['B2-1教室','B2-2教室'] }},
+  west: { name: '西側殿 (C棟)', icon: '🏢', floors: ['1F','2F'],
+    desc: '西側教學空間', rooms: { '1F':['C1-1教室','C1-2教室'], '2F':['C2-1教室','C2-2教室'] }},
+};
+
+const EQUIPMENT = {
+  '115': [
+    { type:'NETWORK', name:'網路設備', icon:'🌐', status:'fault' },
+    { type:'AC', name:'冷氣空調', icon:'❄️', status:'ok' },
+    { type:'POWER', name:'電力插座', icon:'🔌', status:'ok' },
+    { type:'LIGHT', name:'照明設備', icon:'💡', status:'ok' },
+  ],
+  default: [
+    { type:'NETWORK', name:'網路設備', icon:'🌐', status:'ok' },
+    { type:'AC', name:'冷氣空調', icon:'❄️', status:'ok' },
+    { type:'POWER', name:'電力插座', icon:'🔌', status:'ok' },
+    { type:'LIGHT', name:'照明設備', icon:'💡', status:'ok' },
+  ]
+};
+
+const TS = {
+  start: { q:'首先，請確認「總電源開關」是否開啟？', opts:[
+    {t:'✅ 已開啟，但還是沒網路',n:'breaker_check'},{t:'🔌 沒開啟',n:'turn_on_power'},{t:'❓ 不知道在哪裡',n:'show_power'}]},
+  show_power: { q:'沒關係～\n總開關在門口右側的木製小門內。\n找到了嗎？', action:'MAP', opts:[
+    {t:'✅ 找到了，已開啟',n:'breaker_check'},{t:'😢 沒找到',n:'report'}]},
+  turn_on_power: { q:'請嘗試開啟開關，\n等待2分鐘後檢查。成功了嗎？', opts:[
+    {t:'🎉 成功了！',n:'success'},{t:'😓 還是不行',n:'breaker_check'}]},
+  breaker_check: { q:'請前往配電箱，找到標示「Network」的無熔絲開關，執行「復歸」操作。', opts:[
+    {t:'📺 觀看復歸教學',n:'animation',s:'secondary'},
+    {t:'🔍 查看 3D 爆炸圖指引',n:'show_3d_explode',s:'secondary'},
+    {t:'✅ 復歸完成',n:'final_check'},
+    {t:'😰 不敢操作',n:'report'}
+  ]},
+  final_check: { q:'請檢查網路孔燈號是否閃爍？', opts:[
+    {t:'💚 有燈號了！',n:'success'},{t:'🔴 還是沒亮',n:'report'}]},
+  report: { q:'別擔心～\n設備可能累了想休息。\n我會幫您通知維修人員！', rpt:true, opts:[] },
+  success: { q:'🎉 太棒了！\n祝您有美好的一天！', ok:true, opts:[] },
+};
+
+const ANIMS = [
+  {t:'步驟①：找到把手',d:'找到配電箱門上的銀色把手',i:'👆'},
+  {t:'步驟②：旋轉卡榫',d:'將把手往上旋轉解鎖',i:'🔄'},
+  {t:'步驟③：拉開門板',d:'輕輕將門板往左拉開',i:'🚪'},
+  {t:'步驟④：找到115開關',d:'找到標示「115」的開關',i:'🔍'},
+  {t:'步驟⑤：往下扳',d:'用力往下扳到底，等待10秒',i:'⬇️',cd:true},
+  {t:'步驟⑥：往上扳',d:'時間到！往上扳回原位 ✨',i:'⬆️'},
+];
+
+// --- 狀態 ---
+let curRoom = null, curStep = 'start', steps = [], af = 0, cdTimer = null, cdVal = 10;
+
+// --- 頁面 ---
+function showPage(id) { document.querySelectorAll('.page').forEach(p=>p.classList.remove('active')); document.getElementById(id).classList.add('active'); }
+function goHome() { showPage('page-3d'); }
+function show2DMap(floor) { 
+  if (floor) {
+    roundFloor = floor;
+    switch2DFloor(floor === 'B1' ? 'B1' : parseInt(floor));
+  }
+  renderRoundFloorTabs(); renderMap(); showPage('page-2d'); 
+}
+function switch2DFloor(f) {
+  document.querySelectorAll('.floor-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.plan-img-2d').forEach(img => img.classList.remove('active'));
+  const tab = document.getElementById('tab-2d-' + f);
+  const img = document.getElementById('img-2d-' + f);
+  if (tab) tab.classList.add('active');
+  if (img) img.classList.add('active');
+  
+  // 🚀 渲染標記
+  renderFloorMarkers(f, 'plan-markers-2d');
+}
+
+function renderFloorMarkers(floorKey, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.innerHTML = '';
+  
+  const markers = PLAN_MARKERS[floorKey] || [];
+  markers.forEach(m => {
+    const el = document.createElement('div');
+    if (m.type === 'room') {
+      el.className = 'room-marker';
+      el.innerHTML = m.label || m.id;
+      el.onclick = () => enterRoom(m.id);
+    } else {
+      el.className = 'device-node';
+      el.onclick = () => startTS('NETWORK'); // 模擬點擊設備
+    }
+    el.style.left = m.x + '%';
+    el.style.top = m.y + '%';
+    container.appendChild(el);
+  });
+}
+
+function openBasementFull() {
+  const overlay = document.getElementById('basement-full-2d');
+  if (overlay) {
+    overlay.style.display = 'flex';
+    setTimeout(() => overlay.style.opacity = '1', 50);
+    renderFloorMarkers('B1', 'basement-markers');
+  }
+}
+
+function closeBasementFull() {
+  const overlay = document.getElementById('basement-full-2d');
+  if (overlay) {
+    overlay.style.opacity = '0';
+    setTimeout(() => overlay.style.display = 'none', 300);
+  }
+}
+window.closeBasementFull = closeBasementFull;
+window.switch2DFloor = switch2DFloor;
+
+// --- 樓層切換 ---
+function switchRoundFloor(f) {
+  roundFloor = f;
+  renderRoundFloorTabs();
+  renderMap();
+}
+window.switchRoundFloor = switchRoundFloor; 
+
+function renderRoundFloorTabs() {
+  const el = document.getElementById('round-floor-tabs');
+  if (!el) return; 
+  el.innerHTML = ['B1','1F','2F'].map(f =>
+    `<button class="tab ${f===roundFloor?'active':''}" onclick="switchRoundFloor('${f}')">${f}</button>`
+  ).join('');
+}
+
+// --- 全區地圖 ---
+function renderMap() {
+  const svg = document.getElementById('floor-map');
+  if (!svg) return; 
+  const rooms = ROUND[roundFloor] || [];
+  const cx = 300, cy = 420;
+  const outerR = 185, innerR = 95;
+  const midR = (outerR + innerR) / 2;
+  let h = '';
+
+  // === 圓樓外牆弧形延伸 ===
+  h += `<path d="M ${cx-outerR-10} ${cy} A ${outerR+10} ${outerR+10} 0 1 1 ${cx+outerR+10} ${cy}" fill="none" stroke="#92400E" stroke-width="0.8" opacity="0.12"/>`;
+  h += `<path d="M ${cx-outerR-10} ${cy} A ${outerR+10} ${outerR+10} 0 0 0 ${cx+outerR+10} ${cy}" fill="none" stroke="#92400E" stroke-width="0.8" opacity="0.12"/>`;
+
+  // === A棟 主殿 (上方正方形) ===
+  const aw = 95, ah = 85;
+  const ax = cx - aw/2, ay = 18;
+  h += `<rect x="${ax}" y="${ay}" width="${aw}" height="${ah}" rx="4" class="building-rect" onclick="enterBuilding('main')"/>`;
+  h += `<text x="${cx}" y="${ay+ah/2+5}" class="room-label" font-size="12" pointer-events="none">⛩️ 主殿</text>`;
+
+  // 走廊
+  const corrTop = ay + ah, corrBot = cy - outerR + 5, corrW = 22;
+  h += `<rect x="${cx-corrW}" y="${corrTop}" width="${corrW*2}" height="${corrBot-corrTop}" fill="none" stroke="#92400E" stroke-width="1.2" opacity="0.25" rx="2"/>`;
+
+  // === C棟 西側殿 ===
+  const sideW = 65, sideH = 100, cLeft = cx - 155, cTop = corrBot - sideH + 25;
+  h += `<rect x="${cLeft}" y="${cTop}" width="${sideW}" height="${sideH}" rx="4" class="building-rect" onclick="enterBuilding('west')"/>`;
+  h += `<text x="${cLeft+sideW/2}" y="${cTop+35}" class="room-label" font-size="11" pointer-events="none">C棟</text>`;
+  h += `<text x="${cLeft+sideW/2}" y="${cTop+50}" class="room-label" font-size="9" pointer-events="none" opacity="0.6">西側殿</text>`;
+  h += `<line x1="${cLeft+sideW}" y1="${cTop+sideH*0.6}" x2="${cx-corrW}" y2="${corrBot+15}" stroke="#92400E" stroke-width="1.2" opacity="0.25"/>`;
+  h += `<line x1="${cLeft+sideW}" y1="${cTop+sideH*0.7}" x2="${cx-corrW}" y2="${corrBot+25}" stroke="#92400E" stroke-width="1.2" opacity="0.25"/>`;
+
+  // === B棟 東側殿 ===
+  const bLeft = cx + 90;
+  h += `<rect x="${bLeft}" y="${cTop}" width="${sideW}" height="${sideH}" rx="4" class="building-rect" onclick="enterBuilding('east')"/>`;
+  h += `<text x="${bLeft+sideW/2}" y="${cTop+35}" class="room-label" font-size="11" pointer-events="none">B棟</text>`;
+  h += `<text x="${bLeft+sideW/2}" y="${cTop+50}" class="room-label" font-size="9" pointer-events="none" opacity="0.6">東側殿</text>`;
+  h += `<line x1="${bLeft}" y1="${cTop+sideH*0.6}" x2="${cx+corrW}" y2="${corrBot+15}" stroke="#92400E" stroke-width="1.2" opacity="0.25"/>`;
+  h += `<line x1="${bLeft}" y1="${cTop+sideH*0.7}" x2="${cx+corrW}" y2="${corrBot+25}" stroke="#92400E" stroke-width="1.2" opacity="0.25"/>`;
+
+  // === 圓樓主體 ===
+  h += `<circle cx="${cx}" cy="${cy}" r="${innerR}" fill="white" fill-opacity="0.01" style="cursor:pointer" onclick="show3DBuilding('round')"/>`;
+  h += `<circle cx="${cx}" cy="${cy}" r="${outerR}" fill="none" stroke="#92400E" stroke-width="2" opacity="0.35"/>`;
+  h += `<circle cx="${cx}" cy="${cy}" r="${innerR}" fill="none" stroke="#92400E" stroke-width="2" opacity="0.35"/>`;
+  h += `<circle cx="${cx}" cy="${cy}" r="${innerR-2}" fill="#FEF3C7" opacity="0.25"/>`;
+  h += `<text x="${cx}" y="${cy+4}" text-anchor="middle" font-size="12" fill="#92400E" opacity="0.4">中庭</text>`;
+
+  // 房間
+  const isF2 = rooms.length > 20;
+  const rr = isF2 ? 11 : 17;
+  rooms.forEach(room => {
+    const rad = room.angle * Math.PI / 180;
+    const rx = cx + midR * Math.sin(rad), ry = cy - midR * Math.cos(rad);
+    h += `<line x1="${cx + innerR * Math.sin(rad)}" y1="${cy - innerR * Math.cos(rad)}" x2="${cx + outerR * Math.sin(rad)}" y2="${cy - outerR * Math.cos(rad)}" stroke="#92400E" stroke-width="0.6" opacity="0.2"/>`;
+    h += `<circle cx="${rx}" cy="${ry}" r="${rr}" class="room-path ${room.fault?'fault':''}" onclick="enterRoom('${room.id}')"/>`;
+    const fs = (room.label||room.id).length > 3 ? (isF2 ? 5.5 : 7) : (isF2 ? 7.5 : 10);
+    h += `<text x="${rx}" y="${ry+3}" class="room-label" font-size="${fs}">${room.label||room.id}</text>`;
+  });
+  h += `<text x="${cx}" y="${cy-outerR-15}" text-anchor="middle" font-size="13" fill="#78350F" font-weight="bold">${roundFloor==='B1'?'地下室':'圓樓'} ${roundFloor}</text>`;
+  svg.innerHTML = h;
+}
+
+// --- 建築詳情 ---
+function enterBuilding(bid, floor) {
+  const info = BUILDING_INFO[bid];
+  if (floor) { enterBuildingFloor(bid, floor + 'F'); return; }
+  document.getElementById('building-title').textContent = info.name;
+  const el = document.getElementById('building-content');
+  let html = `<div style="padding:20px;text-align:center"><div style="font-size:64px;margin-bottom:12px">${info.icon}</div>
+    <p style="color:#92400E;margin-bottom:16px">${info.desc}</p>
+    <button class="ts-btn secondary" onclick="show3DBuilding('${bid}')" style="margin-bottom:24px">🧱 在 3D 場景中檢視</button>
+    <h3 style="margin-bottom:16px;color:#78350F">請選擇樓層</h3>`;
+  info.floors.forEach(f => {
+    const roomList = info.rooms[f] || [];
+    html += `<div class="floor-card" onclick="enterBuildingFloor('${bid}','${f}')">
+      <div class="floor-card-header"><span class="floor-badge">${f}</span><span class="floor-room-count">${roomList.length} 個空間</span></div>
+      <div class="floor-room-list">${roomList.join('、')}</div></div>`;
+  });
+  el.innerHTML = html + `</div>`; showPage('page-building');
+}
+function enterBuildingFloor(bid, floor) {
+  const info = BUILDING_INFO[bid], rooms = info.rooms[floor] || [];
+  if (rooms.length === 1) enterRoom(rooms[0]);
+  else {
+    const el = document.getElementById('building-content');
+    let html = `<div style="padding:16px"><h3 style="margin-bottom:16px;color:#78350F">${info.name} ${floor}</h3>`;
+    rooms.forEach(r => html += `<div class="equip-card" onclick="enterRoom('${r}')"><div class="equip-icon">門</div><div class="equip-info"><h3>${r}</h3><p>點擊查看設備</p></div><span class="equip-status ok">→</span></div>`);
+    el.innerHTML = html + `</div>`;
+  }
+}
+function enterRoom(roomId) {
+  curRoom = roomId; document.getElementById('room-title').textContent = roomId;
+  const equips = EQUIPMENT[roomId] || EQUIPMENT.default;
+  document.getElementById('equipment-list').innerHTML = equips.map(e => `
+    <div class="equip-card" onclick="${e.status==='fault'?'startTS(\''+e.type+'\')':''}" style="${e.status==='fault'?'cursor:pointer':''}">
+      <div class="equip-icon">${e.icon}</div><div class="equip-info"><h3>${e.name}</h3><p>${e.status==='fault'?'點擊進入故障排除':'運作正常'}</p></div>
+      <span class="equip-status ${e.status}">${e.status==='ok'?'✓ 正常':'⚠ 故障'}</span></div>`).join('');
+  showPage('page-room');
+}
+function startTS(type) { curStep='start'; steps=['start']; document.getElementById('ts-title').textContent=`${curRoom} 故障排除`; renderTS(); showPage('page-troubleshoot'); }
+function renderTS() {
+  const s = TS[curStep], el = document.getElementById('ts-content');
+  let h = `<div class="ts-card">`;
+  if(s.rpt) h+=`<div style="font-size:80px;margin-bottom:12px">🤒</div>`; else if(s.ok) h+=`<div style="font-size:80px;margin-bottom:12px">🎊</div>`;
+  h+=`<div class="question">${s.q.replace(/\n/g,'<br>')}</div>`;
+  s.opts.forEach(o=>h+=`<button class="ts-btn ${o.s||''}" onclick="nextTS('${o.n}')">${o.t}</button>`);
+  if(s.rpt) h+=`<button class="ts-btn danger" onclick="submitTK()">🚨 一鍵報修</button>`;
+  if(s.ok||s.rpt) h+=`<button class="ts-btn secondary" onclick="goHome()" style="margin-top:8px">🏠 回到首頁</button>`;
+  el.innerHTML=h+`</div>`;
+}
+function nextTS(n) { if(n==='show_3d_explode'){show3DExplode();return;} curStep=n; steps.push(n); renderTS(); }
+function show3DExplode() {
+  let bid = 'round';
+  if (curRoom.includes('大殿')) bid = 'main'; else if (curRoom.includes('B棟')) bid = 'east'; else if (curRoom.includes('C棟')) bid = 'west';
+  showPage('page-3d'); if (window.triggerExplosion) window.triggerExplosion(bid);
+}
+function show3DBuilding(bid) { showPage('page-3d'); if (window.triggerExplosion) window.triggerExplosion(bid); }
+function submitTK(){
+  const tid='TK-'+Date.now().toString(36).toUpperCase(),now=new Date();
+  document.getElementById('ticket-content').innerHTML=`<div class="ticket-success-icon">✅</div><h2 style="margin-bottom:8px">報修單已送出！</h2>
+    <div class="ticket-info"><div class="row"><span class="label">單號</span><span class="value">${tid}</span></div><div class="row"><span class="label">空間</span><span class="value">${curRoom}</span></div></div>
+    <button class="ts-btn" onclick="goHome()">🏠 回到首頁</button>`;
+  showPage('page-ticket');
+}
+
+renderRoundFloorTabs(); renderMap();

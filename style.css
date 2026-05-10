@@ -1,0 +1,141 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: 'Noto Sans TC', sans-serif;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #fefce8;
+}
+
+#scene-container {
+  width: 100vw;
+  height: 100vh;
+  transition: opacity 0.5s ease;
+}
+
+/* 🚀 2D 平面圖：全建築「空間榨取」極大化佈局 */
+.page-2d-overlay {
+  position: fixed;
+  inset: 0;
+  width: 100vw; height: 100vh;
+  background: rgba(0, 0, 0, 0.2); /* 改為深色極低透明度 */
+  z-index: 5000;
+  display: none; 
+  flex-direction: column;
+  justify-content: space-between; /* 頂部與底部撐開 */
+  align-items: center;
+  overflow: hidden;
+  backdrop-filter: blur(4px); /* 降低模糊，保持背景可視性 */
+  padding: 2vh 0; /* 上下預留微量間距 */
+  transition: opacity 0.5s ease;
+}
+
+.plan-wrapper-2d {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 0 2vw;
+  animation: fadeInQuick 0.4s ease-out;
+}
+
+@keyframes fadeInQuick {
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* 滿版全螢幕圖片容器 */
+.plan-container-2d {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: transparent;
+  z-index: 1;
+}
+
+#plan-img-2d {
+  width: 100vw;
+  height: 100vh;
+  object-fit: fill; /* 強制滿版，與畫面長寬比同步 */
+  user-select: none;
+}
+
+/* 🚀 綠色精美返回按鈕 - 改為懸浮在右上角 */
+.exit-btn-green {
+  position: absolute;
+  top: 30px;
+  right: 30px;
+  z-index: 2000;
+  background: linear-gradient(135deg, #2ecc71, #27ae60);
+  color: white;
+  border: none;
+  padding: 14px 40px; /* 稍微縮小寬度，適合放在角落 */
+  font-size: 20px;
+  font-weight: 900;
+  border-radius: 100px;
+  cursor: pointer;
+  box-shadow: 0 10px 25px rgba(46, 204, 113, 0.4);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: auto !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.exit-btn-green:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 15px 35px rgba(46, 204, 113, 0.5);
+  filter: brightness(1.1);
+}
+
+/* 🚀 設備點位 (全面強化版) */
+.room-marker {
+  position: absolute;
+  color: #ff3333;
+  font-weight: 900;
+  font-size: 16px; /* 統一字體大小 */
+  text-shadow: 2px 2px 0px #fff, -2px -2px 0px #fff, 2px -2px 0px #fff, -2px 2px 0px #fff;
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  cursor: pointer;
+  z-index: 100;
+  transition: transform 0.2s;
+}
+
+.markers-layer {
+  position: absolute;
+  /* 這裡必須與圖片的顯示尺寸精確對齊，由 JS 動態更新或使用容器比例 */
+  top: 0; left: 0; right: 0; bottom: 0;
+  pointer-events: none;
+}
+
+/* 其他共用介面 */
+header {
+  position: absolute; top: 0; left: 0; width: 100%; height: 60px;
+  background: linear-gradient(90deg, #22c55e, #16a34a);
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 0 20px; z-index: 100;
+}
+.logo-text { font-size: 18px; font-weight: 800; color: white; }
+
+#loading-overlay {
+  position: fixed; inset: 0; background: #fefce8;
+  display: flex; justify-content: center; align-items: center; z-index: 9999;
+}
+.loader-box { width: 300px; text-align: center; }
+.loader-bar { width: 100%; height: 4px; background: #dcfce7; border-radius: 2px; overflow: hidden; margin-top: 10px; }
+.loader-progress { height: 100%; width: 0%; background: #22c55e; transition: width 0.3s ease; }

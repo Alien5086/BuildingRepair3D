@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <title>2D 房間點位調校工具 (個別調整版)</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Noto Sans TC', sans-serif; }
+    body { width: 100vw; height: 100vh; overflow: hidden; background: #222; }
+    
+    .plan-container-2d {
+      position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
+      display: flex; justify-content: center; align-items: center;
+    }
+    #plan-img-2d {
+      width: 100vw; height: 100vh; object-fit: fill; user-select: none;
+    }
+    .markers-layer {
+      position: absolute; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none;
+    }
+    .room-marker {
+      position: absolute; color: #ff3333; font-weight: 900; font-size: 16px;
+      text-shadow: 2px 2px 0px #fff, -2px -2px 0px #fff, 2px -2px 0px #fff, -2px 2px 0px #fff;
+      transform: translate(-50%, -50%); pointer-events: none;
+    }
+
+    #code-output {
+      position: absolute; bottom: 20px; left: 20px; z-index: 9999;
+      background: rgba(0,0,0,0.8); color: #0f0; padding: 15px; border-radius: 8px;
+      font-family: monospace; font-size: 14px; width: 500px; height: 200px; overflow-y: auto;
+    }
+    .copy-btn {
+      position: absolute; bottom: 230px; left: 20px; z-index: 9999;
+      background: #2ecc71; color: white; border: none; padding: 8px 16px;
+      font-weight: bold; cursor: pointer; border-radius: 4px;
+    }
+    .floor-btn {
+      position: absolute; top: 20px; left: 20px; z-index: 9999;
+      background: #3498db; color: white; border: none; padding: 10px 20px;
+      font-weight: bold; cursor: pointer; border-radius: 4px; margin-right: 10px;
+    }
+    
+    /* 調整 dat.gui 的高度與滾動，避免選項太多超出螢幕 */
+    .dg.main {
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+  <button class="floor-btn" style="left: 20px;" onclick="switchFloor('1F')">切換至 1F</button>
+  <button class="floor-btn" style="left: 140px;" onclick="switchFloor('2F')">切換至 2F</button>
+  <button class="copy-btn" onclick="copyCode()">複製程式碼</button>
+  <textarea id="code-output" readonly></textarea>
+
+  <div class="plan-container-2d">
+    <img id="plan-img-2d" src="assets/plan01.png" alt="Plan">
+    <div id="plan-markers-2d" class="markers-layer"></div>
+  </div>
+
+  <script>
+    // 預設每個房間的初始角度
+    const defaultAngles = {
+      "1F": {
+        "109": 40, "108": 55, "107": 70, "106": 85, "105": 100, "103": 115, "102": 130, "101": 145,
+        "110": 320, "111": 302, "112": 285, "113": 267, "115": 250, "116": 232, "117": 215
+      },
+      "2F": {
+        "219": 40, "218": 46, "217": 53, "216": 59, "215": 66, "213": 72, "212": 79, "211": 85, "210": 92, "209": 98, "208": 105, "207": 111, "206": 118, "205": 124, "203": 131, "202": 137, "201": 145,
+        "220": 320, "221": 313, "222": 307, "223": 300, "225": 294, "226": 287, "227": 281, "228": 274, "229": 268, "230": 261, "231": 255, "232": 248, "233": 242, "235": 235, "236": 229, "237": 222, "238": 215,
+        "200聯誼室": 165, "239貴賓室": 195
+      }
+    };
+
+    let currentFloor = "1F";
+    let gui;
+    let roomControllers = [];
+
+    const params = {
+      cx: 50,
+      cy: 50,
+      rx: 31.2,
+      ry: 36,
+      // 這裡會動態注入房間的角度
+    };
+
+    function initGUI() {
+      if (gui) gui.destroy();
+      gui = new dat.GUI({ width: 300 });
+      
+      const globalFolder = gui.addFolder('全域設定 (中心與半徑)');
+      globalFolder.add(params, 'cx', 0, 100, 0.1).name('X 中心 (cx)').onChange(render);
+      globalFolder.add(params, 'cy', 0, 100, 0.1).name('Y 中心 (cy)').onChange(render);
+      globalFolder.add(params, 'rx', 0, 100, 0.1).name('X 半徑寬度 (rx)').onChange(render);
+      globalFolder.add(params, 'ry', 0, 100, 0.1).name('Y 半徑高度 (ry)').onChange(render);
+      globalFolder.open();
+
+      const roomsFolder = gui.addFolder('個別房間角度調整');
+      const floorAngles = defaultAngles[currentFloor];
+      
+      // 動態加入每個房間的拉桿
+      Object.keys(floorAngles).forEach(roomId => {
+        if (params[roomId] === undefined) {
+          params[roomId] = floorAngles[roomId];
+        }
+        roomsFolder.add(params, roomId, 0, 360, 0.5).onChange(render).name(roomId);
+      });
+      roomsFolder.open();
+    }
+
+    function switchFloor(f) {
+      currentFloor = f;
+      document.getElementById('plan-img-2d').src = f === '1F' ? 'assets/plan01.png' : 'assets/plan02.png';
+      params.ry = f === '2F' ? 38 : 36;
+      params.rx = f === '2F' ? 33 : 31.2;
+      initGUI();
+      render();
+    }
+
+    function render() {
+      const container = document.getElementById('plan-markers-2d');
+      container.innerHTML = '';
+      
+      const floorAngles = defaultAngles[currentFloor];
+      
+      Object.keys(floorAngles).forEach(roomId => {
+        const a = params[roomId] * Math.PI / 180;
+        addMarker(roomId, params.cx + params.rx * Math.sin(a), params.cy - params.ry * Math.cos(a), container);
+      });
+
+      updateCode();
+    }
+
+    function addMarker(id, x, y, container) {
+      const div = document.createElement('div');
+      div.className = 'room-marker';
+      div.style.left = x + '%';
+      div.style.top = y + '%';
+      div.innerText = id;
+      container.appendChild(div);
+    }
+
+    function updateCode() {
+      const floorKey = currentFloor === '1F' ? '"round_0"' : '"round_1"';
+      let code = `  ${floorKey}: (function() {\n`;
+      code += `    const cx = ${params.cx}, cy = ${params.cy}, rx = ${params.rx}, ry = ${params.ry};\n\n`;
+      
+      code += `    const rooms = [\n`;
+      const floorAngles = defaultAngles[currentFloor];
+      const entries = Object.keys(floorAngles).map(roomId => {
+        return `      { id: '${roomId}', angle: ${params[roomId]} }`;
+      });
+      code += entries.join(',\n');
+      code += `\n    ];\n\n`;
+
+      code += `    return rooms.map(m => {\n`;
+      code += `      const angle = m.angle * Math.PI / 180;\n`;
+      code += `      return { id: m.id, x: cx + rx * Math.sin(angle), y: cy - ry * Math.cos(angle) };\n`;
+      code += `    });\n`;
+      code += `  })(),`;
+
+      document.getElementById('code-output').value = code;
+    }
+
+    function copyCode() {
+      const code = document.getElementById('code-output');
+      code.select();
+      document.execCommand('copy');
+      alert('已複製程式碼！請貼上到 app.js 覆蓋掉對應的 round_0 或 round_1 區塊。');
+    }
+
+    window.onload = () => {
+      initGUI();
+      render();
+    };
+  </script>
+</body>
+</html>
