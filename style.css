@@ -69,7 +69,7 @@ html, body {
 #plan-img-2d {
   width: 100vw;
   height: 100vh;
-  object-fit: fill; /* 強制滿版，與畫面長寬比同步 */
+  object-fit: fill; /* 回歸滿版，符合一頁式網頁比例 */
   user-select: none;
 }
 
@@ -120,7 +120,7 @@ html, body {
   position: absolute;
   /* 這裡必須與圖片的顯示尺寸精確對齊，由 JS 動態更新或使用容器比例 */
   top: 0; left: 0; right: 0; bottom: 0;
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 /* 其他共用介面 */
@@ -139,3 +139,16 @@ header {
 .loader-box { width: 300px; text-align: center; }
 .loader-bar { width: 100%; height: 4px; background: #dcfce7; border-radius: 2px; overflow: hidden; margin-top: 10px; }
 .loader-progress { height: 100%; width: 0%; background: #22c55e; transition: width 0.3s ease; }
+
+/* ⚡ 配電箱專用樣式 */
+.room-marker.dist-box {
+  background: #ef4444 !important;
+  border: 2px solid #fca5a5 !important;
+  color: white !important;
+  font-weight: bold !important;
+  padding: 4px 10px !important;
+  border-radius: 6px !important;
+  box-shadow: 0 0 15px rgba(239, 68, 68, 0.6) !important;
+  text-shadow: none !important;
+  z-index: 1000 !important;
+}

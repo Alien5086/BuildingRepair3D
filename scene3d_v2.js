@@ -24,21 +24,21 @@ const buildingConfigs = {
     "zoomOffset": [450, 180, 380],
     "floors": [
       {
-        "name": "1F",
+        "name": "大殿",
         "offX": 0, "offY": 33, "offZ": -165,
         "floorW": 0.75, "floorL": 0.75,
         "texScale": 1, "texRot": 0, "texOffX": 0, "texOffY": 0,
         "innerR": 35, "outerR": 145
       },
       {
-        "name": "2F",
+        "name": "母堂",
         "offX": 0, "offY": 53, "offZ": -165,
         "floorW": 0.78, "floorL": 0.78,
         "texScale": 1, "texRot": 0, "texOffX": 0, "texOffY": 0,
         "innerR": 35, "outerR": 145
       },
       {
-        "name": "3F",
+        "name": "穹頂",
         "offX": 0, "offY": 53, "offZ": -163,
         "floorW": 0.78, "floorL": 0.78,
         "texScale": 1, "texRot": 0, "texOffX": 0, "texOffY": 0,
@@ -76,7 +76,7 @@ const buildingConfigs = {
         "hidePlane": true
       }
     ],
-    "textures": ["floor_plan_ref03.png", "floor_plan_ref04.png", "floor_plan_ref04.png"]
+    "textures": ["floor_plan_ref03.png", "floor_plan_ref05.png", "floor_plan_ref05.png"]
   },
   "west": {
     "name": "西側殿 (C棟)",
@@ -108,7 +108,7 @@ const buildingConfigs = {
         "hidePlane": true
       }
     ],
-    "textures": ["floor_plan_ref05.png", "floor_plan_ref06.png", "floor_plan_ref06.png"]
+    "textures": ["floor_plan_ref04.png", "floor_plan_ref06.png", "floor_plan_ref06.png"]
   },
   "round": {
     "name": "圓樓 (D棟)",
@@ -152,7 +152,7 @@ const buildingConfigs = {
     "rot": [0, 1.6, 0],
     "floors": [
       {
-        "name": "B1",
+        "name": "宴會廳",
         "offX": 0, "offY": -15, "offZ": -165,
         "floorW": 2.2, "floorL": 2.2,
         "hidePlane": true
@@ -260,7 +260,10 @@ function enterFloorView(bid, idx) {
   const cfg = buildingConfigs[bid]; const fCfg = cfg.floors[idx]; const planes = floorPlanes[bid];
   if (!planes || !planes[idx]) return;
   const plane = planes[idx]; 
+  
   controls.enabled = false; 
+  controls.enableDamping = false; // 🚀 關鍵：暫停阻尼避免抖動
+  
   lastCameraState.pos = camera.position.clone(); 
   lastCameraState.target = controls.target.clone();
 
@@ -269,44 +272,38 @@ function enterFloorView(bid, idx) {
   const targetZ = plane.position.z;
 
   TWEEN.removeAll();
-  // 兩階段運鏡：先移動中心，再俯衝旋轉
+  
+  // 🚀 單一階段絲滑運鏡
   new TWEEN.Tween(controls.target)
-    .to({ x: targetX, y: targetY, z: targetZ }, 1000)
-    .easing(TWEEN.Easing.Cubic.InOut)
+    .to({ x: targetX, y: targetY, z: targetZ }, 1200)
+    .easing(TWEEN.Easing.Quartic.Out)
     .start();
 
   new TWEEN.Tween(camera.position)
-    .to({ x: targetX, y: targetY + 150, z: targetZ + 0.1 }, 1000)
-    .easing(TWEEN.Easing.Cubic.InOut)
+    .to({ x: targetX, y: targetY + 65, z: targetZ + 0.1 }, 1200)
+    .easing(TWEEN.Easing.Quartic.Out)
     .onComplete(() => {
-      // 最終微調縮放，讓貼圖填滿 (更近)
-      new TWEEN.Tween(camera.position)
-        .to({ y: targetY + 80 }, 500)
-        .easing(TWEEN.Easing.Quadratic.Out)
-        .onComplete(() => {
-          let texUrl = fCfg.plan2D || cfg.textures[idx] || cfg.textures[0];
-          if (window.show2DPlan) window.show2DPlan(texUrl, fCfg.name, cfg.name, bid, idx);
-        })
-        .start();
+      let texUrl = fCfg.plan2D || cfg.textures[idx] || cfg.textures[0];
+      if (window.show2DPlan) window.show2DPlan(texUrl, fCfg.name, cfg.name, bid, idx);
     })
     .start();
 }
 
 window.resetCameraFrom2D = function() {
-  if (!lastCameraState.pos) { controls.enabled = true; return; }
+  if (!lastCameraState.pos) { controls.enabled = true; controls.enableDamping = true; return; }
   
   TWEEN.removeAll();
-  // 更加平滑的返回運鏡：先拉高，再回歸 45 度角
   new TWEEN.Tween(camera.position)
-    .to(lastCameraState.pos, 1200)
+    .to({ x: lastCameraState.pos.x, y: lastCameraState.pos.y, z: lastCameraState.pos.z }, 1000)
     .easing(TWEEN.Easing.Cubic.InOut)
     .start();
 
   new TWEEN.Tween(controls.target)
-    .to(lastCameraState.target, 1200)
+    .to({ x: lastCameraState.target.x, y: lastCameraState.target.y, z: lastCameraState.target.z }, 1000)
     .easing(TWEEN.Easing.Cubic.InOut)
     .onComplete(() => {
       controls.enabled = true;
+      controls.enableDamping = true; // 🚀 恢復阻尼
     })
     .start();
 };
@@ -445,8 +442,15 @@ function animate() {
             p.visible = !fCfg.hidePlane; p.position.set(fCfg.offX || 0, (fCfg.offY || 0) + yOffset, fCfg.offZ || 0);
             if (p.userData.hitBox) { p.userData.hitBox.position.copy(p.position); p.userData.hitBox.visible = true; }
             if (labels && labels[i]) {
-              let labelX = (fCfg.offX || 0); if (id === 'east') labelX -= 30; else if (id === 'west') labelX += 30; else if (id === 'round') labelX += 150; else labelX += 45; 
-              labels[i].position.set(labelX, p.position.y + 5, fCfg.offZ || 0); labels[i].visible = (fCfg.name !== '屋頂');
+              // 🚀 修正方向：東側殿向右 (+)，西側殿向左 (-)
+              let labelX = (fCfg.offX || 0); 
+              if (id === 'east') labelX += 55; // 原本是 -=，改為 +=
+              else if (id === 'west') labelX -= 55; // 原本是 +=，改為 -=
+              else if (id === 'round') labelX += 160; 
+              else labelX += 50; 
+              
+              labels[i].position.set(labelX, p.position.y + 10, fCfg.offZ || 0); // 高度從 +5 改為 +10
+              labels[i].visible = (fCfg.name !== '屋頂');
             }
           }
         });
