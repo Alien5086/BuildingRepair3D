@@ -1,0 +1,16 @@
+{
+  "name": "3D 建築維運系統",
+  "short_name": "3D 維運",
+  "description": "專業建築 3D 維運與故障排除系統",
+  "start_url": "index.html",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#38bdf8",
+  "icons": [
+    {
+      "src": "assets/plan00.webp",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ]
+}

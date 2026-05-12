@@ -9,7 +9,6 @@ let explosionFactor = 0;
 let isFocusMode = false;
 let focusedFloor = null;
 let lastCameraState = { pos: null, target: null };
-let allModelsReady = false; // ⚡ 鎖定開關：所有模型載入完畢前，禁止顯示
 
 const texLoader = new THREE.TextureLoader();
 const PLANE_BASE_SIZE = 100;
@@ -235,12 +234,20 @@ function init() {
   camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 1, 10000);
   camera.position.set(INIT_CAM_POS.x, INIT_CAM_POS.y, INIT_CAM_POS.z);
 
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
+  renderer = new THREE.WebGLRenderer({ 
+    antialias: !isMobile, 
+    alpha: true,
+    powerPreference: "high-performance",
+    precision: isMobile ? "mediump" : "highp" // 手機端使用中等精度，大幅減少 GPU 壓力
+  });
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
+
+  // 手機鎖定 2.0 像素比，防止 3x 螢幕效能崩潰
+  renderer.setPixelRatio(isMobile ? Math.min(2, window.devicePixelRatio) : window.devicePixelRatio);
+
   renderer.localClippingEnabled = true;
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.enabled = !isMobile;
+  renderer.shadowMap.type = isMobile ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
 
   renderer.outputEncoding = THREE.sRGBEncoding;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -248,14 +255,17 @@ function init() {
 
   document.getElementById('scene-container').appendChild(renderer.domElement);
 
-  composer = new THREE.EffectComposer(renderer);
-  const renderPass = new THREE.RenderPass(scene, camera);
-  composer.addPass(renderPass);
+  // 📱 手機端跳過重型後期特效，確保能順利載入
+  if (!isMobile) {
+    composer = new THREE.EffectComposer(renderer);
+    const renderPass = new THREE.RenderPass(scene, camera);
+    composer.addPass(renderPass);
 
-  outlinePass = new THREE.OutlinePass(new THREE.Vector2(window.innerWidth, window.innerHeight), scene, camera);
-  outlinePass.edgeStrength = 5.0; outlinePass.edgeGlow = 1.5; outlinePass.edgeThickness = 2.0;
-  outlinePass.pulsePeriod = 0; outlinePass.visibleEdgeColor.set('#ffffff'); outlinePass.hiddenEdgeColor.set('#ffcc00');
-  composer.addPass(outlinePass);
+    outlinePass = new THREE.OutlinePass(new THREE.Vector2(window.innerWidth, window.innerHeight), scene, camera);
+    outlinePass.edgeStrength = 5.0; outlinePass.edgeGlow = 1.5; outlinePass.edgeThickness = 2.0;
+    outlinePass.pulsePeriod = 0; outlinePass.visibleEdgeColor.set('#ffffff'); outlinePass.hiddenEdgeColor.set('#ffcc00');
+    composer.addPass(outlinePass);
+  }
 
   controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.target.set(INIT_CAM_TARGET.x, INIT_CAM_TARGET.y, INIT_CAM_TARGET.z);
@@ -298,9 +308,19 @@ function init() {
     }
   };
 
-  let isLoaded = false;
   manager.onLoad = () => {
-    // ⚡ 這裡現在什麼都不做，所有清理與解鎖都移到 loadNext 的真正終點
+    const loaderOverlay = document.getElementById('loading-overlay');
+    if (loaderOverlay) {
+      loaderOverlay.style.opacity = '0';
+      setTimeout(() => {
+        loaderOverlay.style.display = 'none';
+        const guideModal = document.getElementById('guide-modal');
+        if (guideModal) guideModal.style.display = 'flex';
+      }, 500);
+    }
+    // ⚡ 載入完畢後釋放解碼器，節省手機內存
+    // @ts-ignore
+    if (window.dracoLoader) window.dracoLoader.dispose();
   };
 
   window.closeGuide = () => {
@@ -334,9 +354,7 @@ function onPointerDown(e) {
     if (data && (data.type === 'label' || data.type === 'floor')) { enterFloorView(data.bid, data.idx); return; }
     let bid = getBuildingIdFromObject(hit);
     if (bid) {
-      selectedBuildingId = bid; isExploded = true;
-      lazyLoadTextures(bid); // ⚡ 進入爆炸圖時，才載入這一棟樓的貼圖
-      if (bid === 'main_hall') lazyLoadTextures('basement');
+      selectedBuildingId = bid; isExploded = (bid !== 'floor');
       if (outlinePass) outlinePass.selectedObjects = [];
       PARAMS.floorIdx = 0; syncParamsFromConfig(bid);
       if (PARAMS.autoCamera) zoomToBuilding(bid);
@@ -469,25 +487,42 @@ function loadModels(manager) {
   const draco = new THREE.DRACOLoader();
   draco.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.4.1/'); 
   loader.setDRACOLoader(draco);
+  window.dracoLoader = draco; 
 
-  Object.keys(buildingConfigs).forEach(id => {
+  const buildingIds = Object.keys(buildingConfigs);
+  let currentIndex = 0;
+
+  function loadNext() {
+    if (currentIndex >= buildingIds.length) return;
+    
+    const id = buildingIds[currentIndex];
     const cfg = buildingConfigs[id];
+    
     loader.load('assets/' + cfg.glb, (gltf) => {
       const model = gltf.scene;
       model.traverse(n => { 
         if (n.isMesh) { 
-          n.castShadow = true; n.receiveShadow = true; 
-          if (n.material) { n.material.depthWrite = true; n.material.transparent = false; } 
+          n.visible = true; 
+          if (!isMobile) { n.castShadow = true; n.receiveShadow = true; }
+          if (n.material) { 
+            n.material.depthWrite = true; n.material.transparent = false; 
+            // ⚡ 手機貼圖優化：關閉非等向性過濾，使用線性過濾
+            if (isMobile && n.material.map) {
+              n.material.map.anisotropy = 1;
+              n.material.map.minFilter = THREE.LinearFilter;
+              n.material.map.magFilter = THREE.LinearFilter;
+            }
+          } 
         } 
       });
       
       updateModelTransform(model, cfg);
       model.updateMatrixWorld(true);
+      
       const box = new THREE.Box3().setFromObject(model);
       model.userData.minY = box.min.y;
-      
+      model.userData.id = id;
       buildings[id] = model;
-      model.visible = (id !== 'basement');
       scene.add(model);
 
       if (cfg.cut1 !== undefined) {
@@ -496,24 +531,22 @@ function loadModels(manager) {
         scene.add(model.userData.slices);
         model.userData.slices.visible = false;
       }
+      
       if (cfg.floors) attachFloorPlanes(id, model.userData.slices, cfg, manager);
-    });
-  });
+      
+      updateVisibility();
 
-  manager.onLoad = () => {
-    allModelsReady = true; 
-    updateVisibility();
-    const loaderOverlay = document.getElementById('loading-overlay');
-    if (loaderOverlay) {
-      loaderOverlay.style.opacity = '0';
-      setTimeout(() => {
-        loaderOverlay.style.display = 'none';
-        const guideModal = document.getElementById('guide-modal');
-        if (guideModal) guideModal.style.display = 'flex';
-        if (draco) draco.dispose();
-      }, 800);
-    }
-  };
+      // ⚡ 載入完畢，遞迴進入下一個
+      currentIndex++;
+      loadNext();
+    }, undefined, (err) => {
+      console.error(`載入 ${id} 失敗:`, err);
+      currentIndex++;
+      loadNext();
+    });
+  }
+
+  loadNext();
 }
 
 function updateModelTransform(model, cfg) {
@@ -523,85 +556,33 @@ function updateModelTransform(model, cfg) {
 }
 
 function createSlices(model, cfg) {
-  const group = new THREE.Group(); 
-  const cuts = [cfg.cut1, cfg.cut2, cfg.cut3].filter(c => c !== undefined && c > 0).sort((a, b) => a - b);
-  for (let i = 0; i <= cuts.length; i++) { 
-    const sliceGroup = new THREE.Group(); 
-    const slice = model.clone(); 
-    slice.traverse(n => { 
-      if (n.isMesh) { 
-        n.visible = true; 
-        n.material = n.material.clone(); 
-        n.material.side = THREE.FrontSide; 
-        n.material.clippingPlanes = [
-          new THREE.Plane(new THREE.Vector3(0, 1, 0), 10000), 
-          new THREE.Plane(new THREE.Vector3(0, -1, 0), 10000)
-        ];
-        // ⚡ 保留手機版材質優化
-        if (isMobile) {
-          n.material.envMapIntensity = 0; 
-          if (n.material.map) n.material.map.anisotropy = 1;
-        }
-      } 
-    }); 
-    sliceGroup.add(slice); 
-    group.add(sliceGroup); 
-  }
+  const group = new THREE.Group(); const cuts = [cfg.cut1, cfg.cut2, cfg.cut3].filter(c => c !== undefined && c > 0).sort((a, b) => a - b);
+  for (let i = 0; i <= cuts.length; i++) { const sliceGroup = new THREE.Group(); const slice = model.clone(); slice.traverse(n => { if (n.isMesh) { n.material = n.material.clone(); n.material.side = THREE.FrontSide; n.material.clippingPlanes = [new THREE.Plane(new THREE.Vector3(0, 1, 0), 10000), new THREE.Plane(new THREE.Vector3(0, -1, 0), 10000)]; } }); sliceGroup.add(slice); group.add(sliceGroup); }
   return group;
 }
 
-function attachFloorPlanes(bid, parent, cfg, manager) {
+function attachFloorPlanes(bid, slices, cfg, manager) {
   if (!cfg.floors) return;
-  floorPlanes[bid] = []; 
-  floorLabels[bid] = [];
-  
-  cfg.floors.forEach((f, i) => {
-    // ⚡ 核心優化：建立平面但不加載貼圖
-    const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, side: THREE.DoubleSide });
-    const planeGeom = (bid === 'round' && !f.hidePlane) ? new THREE.RingGeometry(f.innerR || 35, f.outerR || 145, 64) : new THREE.PlaneGeometry(PLANE_BASE_SIZE * (f.floorW || 1), PLANE_BASE_SIZE * (f.floorL || 1));
-    const plane = new THREE.Mesh(planeGeom, mat); 
-    plane.rotation.x = -Math.PI / 2; 
-    plane.visible = false; 
-    plane.userData = { bid: bid, idx: i, type: 'floor' };
-    scene.add(plane); 
-    floorPlanes[bid].push(plane); 
-    plane.position.set(f.offX || 0, f.offY || 0, f.offZ || 0);
-
-    const hitHeight = 10;
-    const hitGeom = new THREE.BoxGeometry(PLANE_BASE_SIZE * (f.floorW || 1), hitHeight, PLANE_BASE_SIZE * (f.floorL || 1));
-    const hitBox = new THREE.Mesh(hitGeom, new THREE.MeshBasicMaterial({ visible: false }));
-    hitBox.userData = { bid: bid, idx: i, type: 'floor' }; 
-    scene.add(hitBox); 
-    plane.userData.hitBox = hitBox;
-
-    const label = createTextSprite(f.name); 
-    label.visible = false; 
-    label.userData = { bid: bid, idx: i, type: 'label' };
-    scene.add(label); 
-    floorLabels[bid].push(label);
-  });
-}
-
-function lazyLoadTextures(bid) {
-  const cfg = buildingConfigs[bid];
-  const planes = floorPlanes[bid];
-  if (!cfg || !planes) return;
-  planes.forEach((p, i) => {
-    if (p.userData.loaded) return;
-    const texUrl = cfg.textures[i] || cfg.textures[0];
-    if (texUrl) {
-      new THREE.TextureLoader().load('assets/' + texUrl, tex => {
-        tex.wrapS = tex.wrapT = THREE.RepeatWrapping; 
-        tex.center.set(0.5, 0.5); 
-        tex.rotation = cfg.floors[i].texRot || 0; 
-        tex.repeat.set(cfg.floors[i].texScale || 1, cfg.floors[i].texScale || 1); 
-        tex.offset.set(cfg.floors[i].texOffX || 0, cfg.floors[i].texOffY || 0); 
-        p.material.map = tex; 
-        p.material.opacity = 1; 
-        p.material.needsUpdate = true;
-        p.userData.loaded = true;
+  const floorTexLoader = new THREE.TextureLoader(manager);
+  floorPlanes[bid] = []; floorLabels[bid] = [];
+  cfg.floors.forEach((fCfg, i) => {
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 1, side: THREE.DoubleSide });
+    if (cfg.textures && cfg.textures[i]) {
+      floorTexLoader.load('assets/' + cfg.textures[i], tex => {
+        tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.center.set(0.5, 0.5); tex.rotation = fCfg.texRot || 0; tex.repeat.set(fCfg.texScale || 1, fCfg.texScale || 1); tex.offset.set(fCfg.texOffX || 0, fCfg.texOffY || 0); mat.map = tex; mat.needsUpdate = true;
       });
     }
+    const planeGeom = (bid === 'round' && !fCfg.hidePlane) ? new THREE.RingGeometry(fCfg.innerR || 35, fCfg.outerR || 145, 64) : new THREE.PlaneGeometry(PLANE_BASE_SIZE * (fCfg.floorW || 1), PLANE_BASE_SIZE * (fCfg.floorL || 1));
+    const plane = new THREE.Mesh(planeGeom, mat); plane.rotation.x = -Math.PI / 2; plane.visible = false; plane.userData = { bid: bid, idx: i, type: 'floor' };
+    scene.add(plane); floorPlanes[bid].push(plane); plane.position.set(fCfg.offX || 0, fCfg.offY || 0, fCfg.offZ || 0);
+
+    const hitHeight = 10;
+    const hitGeom = new THREE.BoxGeometry(PLANE_BASE_SIZE * (fCfg.floorW || 1), hitHeight, PLANE_BASE_SIZE * (fCfg.floorL || 1));
+    const hitBox = new THREE.Mesh(hitGeom, new THREE.MeshBasicMaterial({ visible: false }));
+    hitBox.userData = { bid: bid, idx: i, type: 'floor' }; scene.add(hitBox); plane.userData.hitBox = hitBox;
+
+    const label = createTextSprite(fCfg.name); label.visible = false; label.userData = { bid: bid, idx: i, type: 'label' };
+    scene.add(label); floorLabels[bid].push(label);
   });
 }
 
@@ -649,47 +630,52 @@ function applyDimEffect(obj, isDim, sourcePos, session) {
 function animate() {
   requestAnimationFrame(animate);
   TWEEN.update();
+
+  if (Date.now() - lastInteractionTime > IDLE_TIMEOUT && !isExploded) {
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 0.6;
+  } else {
+    controls.autoRotate = false;
+  }
   controls.update();
 
-  const factor = explosionFactor;
+  const targetFactor = isExploded ? 1 : 0; explosionFactor += (targetFactor - explosionFactor) * 0.1;
   Object.keys(buildings).forEach(id => {
-    const model = buildings[id];
-    const slices = model.userData.slices;
-    if (!model) return;
-
+    const slices = buildings[id].userData.slices; const model = buildings[id]; const cfg = buildingConfigs[id]; const planes = floorPlanes[id]; const labels = floorLabels[id];
     if (isExploded && (id === selectedBuildingId || (selectedBuildingId === 'main_hall' && id === 'basement'))) {
-      if (slices) updateSliceAnimation(id, model, slices, factor);
-      model.visible = false;
-      if (slices) slices.visible = true;
-    } else {
-      model.visible = (id !== 'basement');
-      if (slices) slices.visible = false;
-    }
-  });
+      if (slices) updateSliceAnimation(id, model, slices, explosionFactor);
+      if (planes) {
+        let gap = (id === 'main_hall' ? PARAMS.gap : cfg.gap || 20);
+        planes.forEach((p, i) => {
+          if (cfg.floors[i]) {
+            const fCfg = cfg.floors[i]; const yOffset = gap * i * explosionFactor;
+            p.visible = !fCfg.hidePlane; p.position.set(fCfg.offX || 0, (fCfg.offY || 0) + yOffset, fCfg.offZ || 0);
+            if (p.userData.hitBox) { p.userData.hitBox.position.copy(p.position); p.userData.hitBox.visible = true; }
+            if (labels && labels[i]) {
+              let labelX = (fCfg.offX || 0);
+              if (id === 'east') labelX += 55;
+              else if (id === 'west') labelX -= 55;
+              else if (id === 'round') labelX += 160;
+              else labelX += 50;
 
-  if (composer && !isMobile) composer.render();
-  else renderer.render(scene, camera);
+              labels[i].position.set(labelX, p.position.y + 10, fCfg.offZ || 0);
+              labels[i].visible = (fCfg.name !== '屋頂');
+            }
+          }
+        });
+      }
+    } else if (planes) { planes.forEach((p, i) => { p.visible = false; if (labels && labels[i]) labels[i].visible = false; if (p.userData.hitBox) p.userData.hitBox.visible = false; }); }
+  });
+  controls.update(); if (composer) composer.render(); else renderer.render(scene, camera);
 }
 
 function updateSliceAnimation(id, model, slices, factor) {
-  const cfg = buildingConfigs[id]; 
-  const minY = model.userData.minY; 
-  const cuts = [cfg.cut1, cfg.cut2, cfg.cut3].filter(c => c !== undefined);
-
+  const cfg = buildingConfigs[id]; const minY = model.userData.minY; const cuts = [cfg.cut1, cfg.cut2, cfg.cut3].filter(c => c !== undefined);
   slices.children.forEach((group, i) => {
     let gap = (id === 'main_hall' ? PARAMS.gap : cfg.gap || 20);
-    const yOffset = gap * i * factor; 
-    group.position.y = yOffset;
-
-    const b = (i === 0) ? -10000 : minY + (cuts[i - 1] || 0); 
-    const t = (i === cuts.length) ? 10000 : minY + (cuts[i] || 0);
-    
-    group.traverse(n => { 
-      if (n.isMesh && n.material.clippingPlanes) { 
-        n.material.clippingPlanes[0].constant = -b - yOffset; 
-        n.material.clippingPlanes[1].constant = t + yOffset; 
-      } 
-    });
+    const yOffset = gap * i * factor; group.position.y = yOffset;
+    const b = (i === 0) ? -10000 : minY + (cuts[i - 1] || 0); const t = (i === cuts.length) ? 10000 : minY + (cuts[i] || 0);
+    group.traverse(n => { if (n.isMesh && n.material.clippingPlanes) { n.material.clippingPlanes[0].constant = -b - yOffset; n.material.clippingPlanes[1].constant = t + yOffset; } });
   });
 }
 
@@ -772,23 +758,44 @@ function getHit(e) {
   let targets = [];
   Object.keys(buildings).forEach(id => {
     const b = buildings[id];
-    if (b) {
+    if (!b) return;
+
+    // ⚡ 終極過濾：地宮如果隱藏了，直接連子物件都不要檢查，徹底從點擊清單中抹除
+    if (id === 'basement' && !b.visible) return;
+
+    let isDimmed = (isExploded && selectedBuildingId !== null && id !== selectedBuildingId);
+    if (isExploded && selectedBuildingId === 'main_hall' && id === 'basement') isDimmed = false;
+
+    if (!isDimmed) {
+      // ⚡ 核心修正：即便本體 (b) 隱藏了，只要切片或樓層標籤是可見的，就應該加入 targets
       if (b.visible && id !== 'floor') {
-        if (!(isExploded && id === selectedBuildingId)) targets.push(b);
+        if (!(isExploded && id === selectedBuildingId)) {
+          targets.push(b);
+        }
       }
+      
+      // 爆炸狀態下的組件
       if (b.userData.slices && b.userData.slices.visible) targets.push(b.userData.slices);
+      
       if (floorPlanes[id]) {
         floorPlanes[id].forEach(p => {
           if (p.visible) targets.push(p);
           if (p.userData.hitBox && p.userData.hitBox.visible) targets.push(p.userData.hitBox);
         });
       }
+      
+      if (floorLabels[id]) {
+        floorLabels[id].forEach(l => {
+          if (l.visible) targets.push(l);
+        });
+      }
     }
   });
 
-  const intersects = ray.intersectObjects(targets, true);
-  if (intersects.length > 0) return intersects[0].object;
-  return null;
+  const hits = ray.intersectObjects(targets, true);
+  if (hits.length === 0) return null;
+  const priorityHit = hits.find(h => h.object.userData && (h.object.userData.type === 'floor' || h.object.userData.type === 'label'));
+  return priorityHit ? priorityHit.object : hits[0].object;
 }
 
 function getBuildingIdFromObject(obj) { let cur = obj; while (cur && !cur.userData.id) cur = cur.parent; return cur ? cur.userData.id : null; }
@@ -797,9 +804,8 @@ function resetHoverEffects() { if (outlinePass) outlinePass.selectedObjects = []
 function applyBuildingHover(bid) { const model = buildings[bid]; if (!model) return; if (outlinePass) outlinePass.selectedObjects = [model]; const cfg = buildingConfigs[bid]; if (cfg) { let finalSX = cfg.scale * (cfg.sx || 1); if (cfg.mirrorX) finalSX *= -1; model.scale.set(finalSX * 1.02, cfg.scale * (cfg.sy || 1) * 1.02, cfg.scale * (cfg.sz || 1) * 1.02); } currentHoveredBuilding = model; }
 function applyFloorHover(bid, idx) { const model = buildings[bid]; if (model) { let sliceToGlow = null; if (model.userData.slices && model.userData.slices.children[idx]) sliceToGlow = model.userData.slices.children[idx].children[0]; else if (bid === 'basement' || (bid === 'main_hall' && idx < 0)) sliceToGlow = buildings['basement']; if (sliceToGlow) { const cfg = buildingConfigs[bid], scaleFactor = 1.05; if (cfg) { let finalSX = cfg.scale * (cfg.sx || 1); if (cfg.mirrorX) finalSX *= -1; sliceToGlow.scale.set(finalSX * scaleFactor, cfg.scale * (cfg.sy || 1) * scaleFactor, cfg.scale * (cfg.sz || 1) * scaleFactor); } sliceToGlow.traverse(n => { if (n.isMesh && n.material && n.material.emissive) n.material.emissive.setHex(0x444444); }); sliceToGlow.userData.bid = bid; currentHoveredSlice = sliceToGlow; const plane = floorPlanes[bid] ? floorPlanes[bid][idx] : null; if (plane) plane.scale.set(scaleFactor, scaleFactor, 1); const label = floorLabels[bid] ? floorLabels[bid][idx] : null; if (label) { label.scale.set(96, 48, 1); currentHoveredFloorLabel = label; } } } }
 function onMouseMove(e) {
-  if (isMobile) return; // ⚡ 手機版完全停用 Hover，省下背景射線偵測的運算量
   lastInteractionTime = Date.now();
-  if (isCameraMoving || isExploded) { resetHoverEffects(); labelDiv.style.display = 'none'; return; } // ⚡ 運鏡中禁止懸停偵測
+  if (isCameraMoving) { resetHoverEffects(); labelDiv.style.display = 'none'; return; } // ⚡ 運鏡中禁止懸停偵測
   const hit = getHit(e); resetHoverEffects(); if (hit) { const data = hit.userData; let bid = data.bid || getBuildingIdFromObject(hit); if (bid && buildingConfigs[bid]) { labelDiv.style.display = 'block'; let displayText = `<b>${buildingConfigs[bid].name}</b>`; if (data.type === 'floor' || data.type === 'label') { const fCfg = buildingConfigs[bid].floors[data.idx]; if (fCfg) displayText += ` - <span style="color:#3b82f6">${fCfg.name}</span>`; applyFloorHover(bid, data.idx); } else if (!isExploded) applyBuildingHover(bid); labelDiv.innerHTML = displayText; labelDiv.style.left = e.clientX + 15 + 'px'; labelDiv.style.top = e.clientY + 15 + 'px'; document.body.style.cursor = 'pointer'; return; } } labelDiv.style.display = 'none'; document.body.style.cursor = 'default';
 }
 function onResize() { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); if (composer) composer.setSize(window.innerWidth, window.innerHeight); }
@@ -927,6 +933,9 @@ function animate() {
   const targetFactor = isExploded ? 1 : 0; 
   explosionFactor += (targetFactor - explosionFactor) * 0.1; 
 
+  // ⚡ 核心修正：每幀開始前，先假設地宮是隱藏的
+  if (buildings['basement']) buildings['basement'].visible = false;
+
   Object.keys(buildings).forEach(id => {
     const b = buildings[id];
     const slices = b.userData.slices;
@@ -935,11 +944,13 @@ function animate() {
     const planes = floorPlanes[id];
     const labels = floorLabels[id];
 
+    // 判斷這棟建築是否該顯示爆炸動畫
     const isTarget = (id === selectedBuildingId || (selectedBuildingId === 'main_hall' && id === 'basement'));
     const isCollapsing = (id === collapsingBuildingId || (collapsingBuildingId === 'main_hall' && id === 'basement'));
 
     if (isExploded && isTarget) {
       if (slices) { slices.visible = true; updateSliceAnimation(id, model, slices, explosionFactor); }
+      // 只有在主殿爆炸時，地宮才顯示為底層
       if (id === 'basement') b.visible = true; else b.visible = false;
       
       if (planes) {
@@ -960,6 +971,7 @@ function animate() {
         });
       }
     } else if (!isExploded && explosionFactor > 0.01 && isCollapsing) {
+      // ⚡ 收合動畫中
       if (slices) { slices.visible = true; updateSliceAnimation(id, model, slices, explosionFactor); }
       if (id === 'basement') b.visible = true; else b.visible = false;
       if (planes) {
@@ -984,9 +996,10 @@ function animate() {
     }
   });
 
+  // ⚡ 關鍵修正：收合完成後才清除標記，且要放在迴圈外面
   if (!isExploded && explosionFactor <= 0.01) collapsingBuildingId = null;
 
-  if (composer) composer.render();
+  if (composer && !isMobile) composer.render();
   else renderer.render(scene, camera);
   if (controls) controls.update();
 }
